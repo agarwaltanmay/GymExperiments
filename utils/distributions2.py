@@ -26,12 +26,9 @@ def make_proba_dist_type(ac_space):
 
 class Distribution(DiagGaussianProbabilityDistributionType):
     def proba_distribution_from_latent(self, pi_latent_vector, vf_latent_vector, init_scale=1.0, init_bias=0.0):
-        mean = tf.tanh(linear(pi_latent_vector, 'pi', self.size, init_scale=init_scale, init_bias=init_bias))
-        # mean = linear(pi_latent_vector, 'pi', self.size, init_scale=init_scale, init_bias=init_bias)
-#         logstd = tf.get_variable(name='pi/logstd', shape=[1, self.size], initializer= tf.constant_initializer([-2.3, -2.3]))
-        logstd = tf.get_variable(name='pi/logstd', shape=[1, self.size], initializer= tf.constant_initializer([-2.3]))
-        # logstd = tf.get_variable(name='pi/logstd', shape=[1, self.size], initializer= tf.constant_initializer([-2.3, -1.2]))
-        # logstd = tf.get_variable(name='pi/logstd', initializer= tf.constant([[-2.3,-1.2]]))
+        # mean = tf.tanh(linear(pi_latent_vector, 'pi', self.size, init_scale=init_scale, init_bias=init_bias))
+        mean = linear(pi_latent_vector, 'pi', self.size, init_scale=init_scale, init_bias=init_bias)
+        logstd = tf.get_variable(name='pi/logstd', shape=[1, self.size], initializer= tf.zeros_initializer())
         pdparam = tf.concat([mean, mean * 0.0 + logstd], axis=1)
         q_values = linear(vf_latent_vector, 'q', self.size, init_scale=init_scale, init_bias=init_bias)
         return self.proba_distribution_from_flat(pdparam), mean, q_values

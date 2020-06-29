@@ -8,93 +8,16 @@ import numpy as np
 import tensorflow as tf
 import tensorflow.contrib.slim as slim
 from tensorflow.contrib.layers import xavier_initializer
-from stable_baselines.common.policies import BasePolicy, register_policy, mlp_extractor
+from stable_baselines.common.policies import BasePolicy, register_policy, nature_cnn, mlp_extractor
 from stable_baselines.a2c.utils import conv, linear, conv_to_fc, batch_to_seq, seq_to_batch, lstm
-from stable_baselines.common.distributions import CategoricalProbabilityDistribution, \
+from stable_baselines.common.distributions import make_proba_dist_type, CategoricalProbabilityDistribution, \
     MultiCategoricalProbabilityDistribution, DiagGaussianProbabilityDistribution, BernoulliProbabilityDistribution
 from stable_baselines.common.input import observation_input
-from utils.distributions import make_proba_dist_type
-
-
-def CoRLModel(inputs, num_actions, scope, reuse=False):
-    with tf.variable_scope(scope, reuse=reuse):
-        activation = tf.nn.tanh
-        convs1 = [
-            [8, [3, 3], 1],
-            [16, [3, 3], 1],
-        ]
-        pool1 = [
-            [[2,2], 2]
-        ]
-        convs2 = [
-            [16, [3, 3], 1],
-            [8, [3, 3], 1],
-        ]
-        pool2 = [
-            [[2,2], 2]
-        ]
-        hidden = 3528
-        net = inputs
-        out_size, kernel, stride = convs1[0]
-        net = slim.conv2d(net, out_size, kernel, stride, scope="conv1/conv3_1")
-        out_size, kernel, stride = convs1[1]
-        net = slim.conv2d(net, out_size, kernel, stride, scope="conv1/conv3_2")
-        kernel, stride = pool1[0]
-        net = slim.pool(net, kernel, "MAX", stride=stride, scope="pool1")
-        #--------
-        out_size, kernel, stride = convs2[0]
-        net = slim.conv2d(net, out_size, kernel, stride, scope="conv2/conv3_1")
-        out_size, kernel, stride = convs2[1]
-        net = slim.conv2d(net, out_size, kernel, stride, scope="conv2/conv3_2")
-        kernel, stride = pool2[0]
-        net = slim.pool(net, kernel, "MAX", stride=stride, scope="pool2")
-        net = tf.squeeze(net)
-        net = tf.reshape(net, [-1, 21, 21, 8])
-        #Flatten pool layer
-        net = slim.flatten(net, scope="flatten3")
-        #--------
-        net = slim.fully_connected(
-            net,
-            hidden,
-            weights_initializer=xavier_initializer(uniform=False),
-            activation_fn=activation,
-            scope="fc4")
-        net = slim.fully_connected(
-            net,
-            num_actions,
-            weights_initializer=xavier_initializer(uniform=False),
-            activation_fn=None,
-            scope="y")
-    return net
-
-def MeasurementsModel(inputs, num_actions, scope, reuse=False):
-    with tf.variable_scope(scope, reuse=reuse):
-        activation = tf.nn.relu
-        net = inputs
-        net = slim.fully_connected(
-            net,
-            128,
-            weights_initializer=xavier_initializer(uniform=False),
-            activation_fn=activation,
-            scope="fc1")
-        net = slim.fully_connected(
-            net,
-            128,
-            weights_initializer=xavier_initializer(uniform=False),
-            activation_fn=activation,
-            scope="fc2")
-        net = slim.fully_connected(
-            net,
-            num_actions,
-            weights_initializer=xavier_initializer(uniform=False),
-            activation_fn=None,
-            scope="y")
-    return net
+from stable_baselines.a2c.utils import conv, linear, conv_to_fc
 
 def nature_cnn(scaled_images, **kwargs):
     """
     CNN from Nature paper.
-
     :param scaled_images: (TensorFlow Tensor) Image input placeholder
     :param kwargs: (dict) Extra keywords parameters for the convolutional layers of the CNN
     :return: (TensorFlow Tensor) The CNN output layer
@@ -104,8 +27,7 @@ def nature_cnn(scaled_images, **kwargs):
     layer_2 = activ(conv(layer_1, 'c2', n_filters=64, filter_size=4, stride=2, init_scale=np.sqrt(2), **kwargs))
     layer_3 = activ(conv(layer_2, 'c3', n_filters=64, filter_size=3, stride=1, init_scale=np.sqrt(2), **kwargs))
     layer_3 = conv_to_fc(layer_3)
-    return activ(linear(layer_3, 'fc1', n_hidden=64, init_scale=np.sqrt(2)))
-
+    return activ(linear(layer_3, 'fc1', n_hidden=512, init_scale=np.sqrt(2)))
 
 class ActorCriticPolicy(BasePolicy):
     """
@@ -137,7 +59,7 @@ class ActorCriticPolicy(BasePolicy):
         """
         with tf.variable_scope("output", reuse=True):
             assert self.policy is not None and self.proba_distribution is not None and self.value_fn is not None
-            self.logstd = self.proba_distribution.logstd
+            self.logstd = self.proba_distribution.get_logstd()
             self.mean = self.proba_distribution.mode() 
             self._action = self.proba_distribution.sample()
             self._deterministic_action = self.proba_distribution.mode()
@@ -268,28 +190,7 @@ class FeedForwardPolicy(ActorCriticPolicy):
 
         with tf.variable_scope("model", reuse=reuse):
             if feature_extraction == "cnn":
-                activ = tf.nn.tanh
-
-                observation_features = self.processed_obs[:, :, -8:]
-                observation_features_flat = tf.layers.flatten(observation_features)
-
-                visual_features = self.processed_obs[:, :, :-8]
-                visual_features = tf.reshape(visual_features, [-1, 128, 128, 15])
-
-                vis_pi_latent = vis_vf_latent = cnn_extractor(visual_features, **kwargs)
-                vis_pi_latent = tf.reshape(vis_pi_latent, [-1, 1, 512])
-                vis_vf_latent = tf.reshape(vis_vf_latent, [-1, 1, 512])
-
-                meas_pi_h = activ(linear(observation_features_flat, "pi_meas_fc", 512, init_scale=np.sqrt(2)))
-                meas_pi_latent = tf.reshape(meas_pi_h, [-1, 1, 512])
-                features = tf.layers.flatten(tf.concat([vis_pi_latent, meas_pi_latent], axis=2))
-                pi_latent = activ(linear(features, "pi_fc", 128, init_scale=np.sqrt(2)))
-
-                meas_vf_h = activ(linear(observation_features_flat, "vf_meas_fc", 512, init_scale=np.sqrt(2)))
-                meas_vf_latent = tf.reshape(meas_vf_h, [-1, 1, 512])
-                features = tf.layers.flatten(tf.concat([vis_vf_latent, meas_vf_latent], axis=2))
-                vf_latent = activ(linear(features, "vf_fc", 128, init_scale=np.sqrt(2)))
-
+                pi_latent = vf_latent = cnn_extractor(self.processed_obs, **kwargs)
             else:
                 pi_latent, vf_latent = mlp_extractor(tf.layers.flatten(self.processed_obs), net_arch, act_fun)
 
@@ -315,28 +216,9 @@ class FeedForwardPolicy(ActorCriticPolicy):
     def value(self, obs, state=None, mask=None):
         return self.sess.run(self.value_flat, {self.obs_ph: obs})
 
-
-class Policy_1_layer(FeedForwardPolicy):
+class Policy(FeedForwardPolicy):
     def __init__(self, *args, **kwargs):
-        super(Policy_1_layer, self).__init__(*args, **kwargs,
-                                           net_arch=[dict(pi=[64],
-                                                          vf=[64])],
-                                           feature_extraction="mlp")
-    
-    def step(self, obs, state=None, mask=None, deterministic=False):
-        if deterministic:
-            action, value, neglogp = self.sess.run([self.deterministic_action, self.value_flat, self.neglogp],
-                                                   {self.obs_ph: obs})
-            return action, value, self.initial_state, neglogp, None, None
-        else:
-            action, value, neglogp, logstd, mean = self.sess.run([self.action, self.value_flat, self.neglogp, 
-                                                                    self.logstd, self.mean],
-                                                   {self.obs_ph: obs})
-            return action, value, self.initial_state, neglogp, logstd, mean
-        
-class Policy_2_layer(FeedForwardPolicy):
-    def __init__(self, *args, **kwargs):
-        super(Policy_2_layer, self).__init__(*args, **kwargs,
+        super(Policy, self).__init__(*args, **kwargs,
                                            net_arch=[dict(pi=[64, 64],
                                                           vf=[64, 64])],
                                            feature_extraction="mlp")
@@ -352,120 +234,7 @@ class Policy_2_layer(FeedForwardPolicy):
                                                    {self.obs_ph: obs})
             return action, value, self.initial_state, neglogp, logstd, mean
 
-
-class CustomPolicy(ActorCriticPolicy):
-    def step(self, obs, state=None, mask=None, deterministic=False):
-        if deterministic:
-            action, value, neglogp = self.sess.run([self.deterministic_action, self.value_flat, self.neglogp],
-                                                   {self.obs_ph: obs})
-            return action, value, self.initial_state, neglogp, None, None
-        else:
-            action, value, neglogp, logstd, mean = self.sess.run([self.action, self.value_flat, self.neglogp,
-                                                                  self.logstd, self.mean],
-                                                                 {self.obs_ph: obs})
-            return action, value, self.initial_state, neglogp, logstd, mean
-
-    def proba_step(self, obs, state=None, mask=None):
-        return self.sess.run(self.policy_proba, {self.obs_ph: obs})
-
-    def value(self, obs, state=None, mask=None):
-        return self.sess.run(self.value_flat, {self.obs_ph: obs})
-
-
-class CustomPolicy1(CustomPolicy):
-    def __init__(self, sess, ob_space, ac_space, n_env, n_steps, n_batch, reuse=False, **kwargs):
-        super(CustomPolicy1, self).__init__(sess, ob_space, ac_space, n_env, n_steps, n_batch, reuse=reuse, scale=False)
-
-        with tf.variable_scope("model", reuse=reuse):
-            activ = tf.nn.tanh
-            
-            measurement_features = tf.expand_dims(self.processed_obs[:, :, -1], axis=1)
-            vae_features = self.processed_obs[:, :, :-1]
-            vae_features_flat = tf.layers.flatten(vae_features)
-            
-            pi_h = activ(linear(vae_features_flat, "pi_vae_fc", 64, init_scale=np.sqrt(2)))
-            pi_latent = tf.reshape(pi_h, [-1, 1, 64])
-            features = tf.layers.flatten(tf.concat([pi_latent, measurement_features], axis=2))
-            pi_latent = activ(linear(features, "pi_fc", 64, init_scale=np.sqrt(2)))
-
-
-            vf_h = activ(linear(vae_features_flat, "vf_vae_fc", 64, init_scale=np.sqrt(2)))
-            vf_latent = tf.reshape(vf_h, [-1, 1, 64])
-            features = tf.layers.flatten(tf.concat([vf_latent, measurement_features], axis=2))
-            vf_latent = activ(linear(features, "vf_fc", 64, init_scale=np.sqrt(2)))
-            
-            value_fn = linear(vf_latent, 'vf', 1, init_scale=np.sqrt(2))
-
-            self._proba_distribution, self._policy, self.q_value = \
-                self.pdtype.proba_distribution_from_latent(pi_latent, vf_latent, init_scale=0.01)
-
-        self._value_fn = value_fn
-        self._setup_init()
-
-
-class CustomPolicy2(CustomPolicy):
-    def __init__(self, sess, ob_space, ac_space, n_env, n_steps, n_batch, reuse=False, **kwargs):
-        super(CustomPolicy2, self).__init__(sess, ob_space, ac_space, n_env, n_steps, n_batch, reuse=reuse, scale=False)
-
-        with tf.variable_scope("model", reuse=reuse):
-            activ = tf.nn.tanh
-            
-            # HARD CODED: Taking last 8 observation input
-            observation_features = self.processed_obs[:, :, -8:]
-            observation_features_flat = tf.layers.flatten(observation_features)
-            vae_features = self.processed_obs[:, :, :-8]
-            vae_features_flat = tf.layers.flatten(vae_features)
-
-            vae_pi_h = activ(linear(vae_features_flat, "pi_vae_fc", 64, init_scale=np.sqrt(2)))
-            vae_pi_latent = tf.reshape(vae_pi_h, [-1, 1, 64])
-            meas_pi_h = activ(linear(observation_features_flat, "pi_meas_fc", 64, init_scale=np.sqrt(2)))
-            meas_pi_latent = tf.reshape(meas_pi_h, [-1, 1, 64])
-            features = tf.layers.flatten(tf.concat([vae_pi_latent, meas_pi_latent], axis=2))
-            pi_latent = activ(linear(features, "pi_fc", 64, init_scale=np.sqrt(2)))
-
-
-            vae_vf_h = activ(linear(vae_features_flat, "vf_vae_fc", 64, init_scale=np.sqrt(2)))
-            vae_vf_latent = tf.reshape(vae_vf_h, [-1, 1, 64])
-            meas_vf_h = activ(linear(observation_features_flat, "vf_meas_fc", 64, init_scale=np.sqrt(2)))
-            meas_vf_latent = tf.reshape(meas_vf_h, [-1, 1, 64])
-            features = tf.layers.flatten(tf.concat([vae_vf_latent, meas_vf_latent], axis=2))
-            vf_latent = activ(linear(features, "vf_fc", 64, init_scale=np.sqrt(2)))
-            
-            value_fn = linear(vf_latent, 'vf', 1, init_scale=np.sqrt(2))
-
-            self._proba_distribution, self._policy, self.q_value = \
-                self.pdtype.proba_distribution_from_latent(pi_latent, vf_latent, init_scale=0.01)
-
-        self._value_fn = value_fn
-        self._setup_init()
-
-
-class CustomWPPolicy(CustomPolicy):
-    def __init__(self, sess, ob_space, ac_space, n_env, n_steps, n_batch, reuse=False, **kwargs):
-        super(CustomWPPolicy, self).__init__(sess, ob_space, ac_space, n_env, n_steps, n_batch, reuse=reuse, scale=False)
-
-        with tf.variable_scope("model", reuse=reuse):
-            activ = tf.nn.tanh
-            
-            measurement_features = tf.expand_dims(self.processed_obs[:, -1], axis=1)
-            measurement_features_flat = tf.layers.flatten(measurement_features)
-            
-            pi_h = activ(linear(measurement_features_flat, "pi_vae_fc", 64, init_scale=np.sqrt(2)))
-            pi_latent = activ(linear(pi_h, "pi_fc", 64, init_scale=np.sqrt(2)))
-            
-            vf_h = activ(linear(measurement_features_flat, "vf_vae_fc", 64, init_scale=np.sqrt(2)))
-            vf_latent = activ(linear(pi_h, "vf_fc", 64, init_scale=np.sqrt(2)))
-            
-            value_fn = linear(vf_latent, 'vf', 1, init_scale=np.sqrt(2))
-
-            self._proba_distribution, self._policy, self.q_value = \
-                self.pdtype.proba_distribution_from_latent(pi_latent, vf_latent, init_scale=0.01)
-
-        self._value_fn = value_fn
-        self._setup_init()
-
-
-class CnnPolicy(FeedForwardPolicy):
+class CNNPolicy(FeedForwardPolicy):
     """
     Policy object that implements actor critic, using a CNN (the nature CNN)
     :param sess: (TensorFlow session) The current TensorFlow session
@@ -479,16 +248,16 @@ class CnnPolicy(FeedForwardPolicy):
     """
 
     def __init__(self, sess, ob_space, ac_space, n_env, n_steps, n_batch, reuse=False, **_kwargs):
-        super(CnnPolicy, self).__init__(sess, ob_space, ac_space, n_env, n_steps, n_batch, reuse,
+        super(CNNPolicy, self).__init__(sess, ob_space, ac_space, n_env, n_steps, n_batch, reuse,
                                         feature_extraction="cnn", **_kwargs)
-
+    
     def step(self, obs, state=None, mask=None, deterministic=False):
         if deterministic:
             action, value, neglogp = self.sess.run([self.deterministic_action, self.value_flat, self.neglogp],
                                                    {self.obs_ph: obs})
             return action, value, self.initial_state, neglogp, None, None
         else:
-            action, value, neglogp, logstd, mean = self.sess.run([self.action, self.value_flat, self.neglogp,
+            action, value, neglogp, logstd, mean = self.sess.run([self.action, self.value_flat, self.neglogp, 
                                                                     self.logstd, self.mean],
                                                    {self.obs_ph: obs})
             return action, value, self.initial_state, neglogp, logstd, mean

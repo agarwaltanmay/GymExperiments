@@ -42,7 +42,7 @@ def plot_reward(timesteps, mean_reward, min_reward, max_reward, figname="mean_re
     plt.title("Reward")
     plt.xlabel('Timesteps (in K)', fontdict={'size' : 18})
     plt.ylabel('Total Cumulative Reward', fontdict={'size' : 18})
-    plt.xticks(list(np.arange(0, (math.ceil(timesteps[-1] / timesteps_interval) + 1) * timesteps_interval, timesteps_interval)), ('{}'.format(str(x)) for x in np.arange(0, (math.ceil(timesteps[-1] / timesteps_interval) + 1) * timesteps_interval, timesteps_interval)))
+    # plt.xticks(list(np.arange(0, (math.ceil(timesteps[-1] / timesteps_interval) + 1) * timesteps_interval, timesteps_interval)), ('{}'.format(str(x)) for x in np.arange(0, (math.ceil(timesteps[-1] / timesteps_interval) + 1) * timesteps_interval, timesteps_interval)))
     plt.savefig(figname, dpi=200)
 #     plt.show()
 
@@ -62,7 +62,7 @@ def forward_search(trained_timesteps, env_name, save_file, seed, pid):
 def train(env_name, total_timesteps, train_timesteps, LOGS, seed):
     env = make_vec_env(env_name)
     # model = PPO(MlpPolicy, env, seed=seed)
-    model = PPO(MlpPolicy, env)
+    model = PPO(MlpPolicy, env, n_steps=2048, nminibatches=32, noptepochs=10, ent_coef=0.0, learning_rate=3e-4, cliprange_vf=-1)
     timesteps = []
     mean_reward = []
     std_reward = []
@@ -130,7 +130,7 @@ def train(env_name, total_timesteps, train_timesteps, LOGS, seed):
 
 def train_with_forward_search(env_name, pop_size, total_timesteps, train_timesteps, LOGS, FORWARD_SEARCH_MODEL, seed):
     env = make_vec_env(env_name)
-    model = PPO(MlpPolicy, env)
+    model = PPO(MlpPolicy, env, n_steps=2048, nminibatches=32, noptepochs=10, ent_coef=0.0, learning_rate=3e-4, cliprange_vf=-1)
 #     model = PPO(MlpPolicy, env, seed=seed)
     timesteps = []
     mean_reward = []
@@ -191,7 +191,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     print(args)
 
-    env_name = 'CartPole-v1'
+    env_name = args.env_name
     run_id = args.id
     n_envs = 1
     total_timesteps = args.steps

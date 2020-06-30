@@ -11,7 +11,8 @@ import argparse
 import multiprocessing as mp
 from datetime import datetime
 
-def test(model, env):
+def test(model, env_name):
+    env = make_vec_env(env_name)
     obs = env.reset()
     total_rewards = []
     for episode in range(100):
@@ -52,7 +53,7 @@ def forward_search(trained_timesteps, env_name, save_file, seed, pid):
     model = PPO.load(save_file, env=env, pid=pid)
 
     model = model.learn(trained_timesteps, tb_log_name="PPO", reset_num_timesteps=True)
-    mean, std = test(model, env)
+    mean, std = test(model, env_name)
     pid = os.getpid()
     model.save(save_file, pid=pid)
     env.close()
@@ -68,7 +69,7 @@ def train(env_name, total_timesteps, train_timesteps, LOGS, args, seed):
     std_reward = []
     for epoch in range(total_timesteps//train_timesteps):
         model = model.learn(total_timesteps=train_timesteps)
-        mean, std = test(model, env)
+        mean, std = test(model, env_name)
         print("Epoch: {}, Mean Reward:{}, Std Reward:{}".format(epoch + 1, mean, std))
         model.save(os.path.join(LOGS, "ppo2_{}-epoch{}".format(env_name, epoch + 1)))
         timesteps.append((epoch + 1) * train_timesteps)
@@ -102,7 +103,7 @@ def train(env_name, total_timesteps, train_timesteps, LOGS, args, seed):
 #         models_parameters = []
 #         for _ in range(pop_size):
 #             model = model.learn(total_timesteps=train_timesteps)
-#             mean, std = test(model, env)
+#             mean, std = test(model, env_name)
 #             mean_rewards.append(mean)
 #             std_rewards.append(std)
 #             models_parameters.append(model.get_parameters())
@@ -207,7 +208,8 @@ if __name__ == "__main__":
     train_timesteps = args.steps // args.epochs
     pop_size = args.pop_size
 
-    LOGS = os.getcwd()        
+    LOGS = os.getcwd()
+    LOGS = "/home/scratch/tanmaya/projects/GymExperiments"      
     LOGS = os.path.join(LOGS, env_name, '{}_{}'.format(total_timesteps, args.epochs), 'run{}'.format(run_id))
     makedirs(LOGS)
     FORWARD_SEARCH_MODEL = os.path.join(LOGS, 'fs-model')

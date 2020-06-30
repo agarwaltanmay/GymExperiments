@@ -63,7 +63,7 @@ def forward_search(trained_timesteps, env_name, save_file, seed, pid):
 def train(env_name, total_timesteps, train_timesteps, LOGS, args, seed):
     env = make_vec_env(env_name, n_envs=args.n_envs)
     # model = PPO(MlpPolicy, env, seed=seed)
-    model = PPO(MlpPolicy, env, n_steps=args.n_steps, nminibatches=args.nminibatches, noptepochs=args.noptepochs, ent_coef=args.ent_coef, learning_rate=args.learning_rate, lam=args.lam, gamma=args.gamma, cliprange=args.cliprange, cliprange_vf=-1)
+    model = PPO(MlpPolicy, env, n_steps=args.n_steps, nminibatches=args.nminibatches, noptepochs=args.noptepochs, ent_coef=args.ent_coef, learning_rate=args.learning_rate, lam=args.lam, gamma=args.gamma, cliprange=args.cliprange, cliprange_vf=args.cliprange_vf)
     timesteps = []
     mean_reward = []
     std_reward = []
@@ -131,7 +131,7 @@ def train(env_name, total_timesteps, train_timesteps, LOGS, args, seed):
 
 def train_with_forward_search(env_name, pop_size, total_timesteps, train_timesteps, LOGS, FORWARD_SEARCH_MODEL, args, seed):
     env = make_vec_env(env_name, n_envs=args.n_envs)
-    model = PPO(MlpPolicy, env, n_steps=args.n_steps, nminibatches=args.nminibatches, noptepochs=args.noptepochs, ent_coef=args.ent_coef, learning_rate=args.learning_rate, lam=args.lam, gamma=args.gamma, cliprange=args.cliprange, cliprange_vf=-1)
+    model = PPO(MlpPolicy, env, n_steps=args.n_steps, nminibatches=args.nminibatches, noptepochs=args.noptepochs, ent_coef=args.ent_coef, learning_rate=args.learning_rate, lam=args.lam, gamma=args.gamma, cliprange=args.cliprange, cliprange_vf=args.cliprange_vf)
 #     model = PPO(MlpPolicy, env, seed=seed)
     timesteps = []
     mean_reward = []
@@ -192,6 +192,7 @@ if __name__ == "__main__":
     parser.add_argument('--no-minibatches',dest='nminibatches',type=int,default=4, help='Number of minibatches for PPO.')
     parser.add_argument('--ent-coef',dest='ent_coef',type=float,default=0.01, help='Entropy term for PPO runs.')
     parser.add_argument('--clip',dest='cliprange',type=float,default=0.2, help='Clip parameter for PPO.')
+    parser.add_argument('--cliprange-vf',dest='cliprange_vf',action='store_true', help='Enable old PPO style clipping. Refer stable baselines documentation.')
     parser.add_argument('--lam',dest='lam',type=float,default=0.95, help='lam parameter for PPO.')
     parser.add_argument('--gamma',dest='gamma',type=float,default=0.99, help='gamma parameter for PPO.')
     parser.add_argument('--lr',dest='learning_rate',type=float,default=2.5e-4)
@@ -207,6 +208,10 @@ if __name__ == "__main__":
     total_timesteps = args.steps
     train_timesteps = args.steps // args.epochs
     pop_size = args.pop_size
+    if not args.cliprange_vf:
+        args.cliprange_vf = None
+    else:
+        args.cliprange_vf = -1
 
     LOGS = os.getcwd()
     LOGS = "/home/scratch/tanmaya/projects/GymExperiments"      

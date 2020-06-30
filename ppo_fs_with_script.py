@@ -47,7 +47,7 @@ def plot_reward(timesteps, mean_reward, min_reward, max_reward, figname="mean_re
 #     plt.show()
 
 def forward_search(trained_timesteps, env_name, save_file, seed, pid):
-    env = make_vec_env(env_name)
+    env = make_vec_env(env_name, n_envs=args.n_envs)
 
     model = PPO.load(save_file, env=env, pid=pid)
 
@@ -59,10 +59,10 @@ def forward_search(trained_timesteps, env_name, save_file, seed, pid):
 
     return [model.get_parameters(), pid, mean, std]
 
-def train(env_name, total_timesteps, train_timesteps, LOGS, seed):
-    env = make_vec_env(env_name)
+def train(env_name, total_timesteps, train_timesteps, LOGS, args, seed):
+    env = make_vec_env(env_name, n_envs=args.n_envs)
     # model = PPO(MlpPolicy, env, seed=seed)
-    model = PPO(MlpPolicy, env, n_steps=2048, nminibatches=32, noptepochs=10, ent_coef=0.0, learning_rate=3e-4, cliprange_vf=-1)
+    model = PPO(MlpPolicy, env, n_steps=args.n_steps, nminibatches=args.nminibatches, noptepochs=args.noptepochs, ent_coef=args.ent_coef, learning_rate=args.learning_rate, lam=args.lam, gamma=args.gamma, cliprange=args.cliprange, cliprange_vf=-1)
     timesteps = []
     mean_reward = []
     std_reward = []
@@ -128,9 +128,9 @@ def train(env_name, total_timesteps, train_timesteps, LOGS, seed):
 #             csvwriter = csv.writer(f, delimiter=',')
 #             csvwriter.writerow([epoch + 1, ind, mean_rewards[ind], std_rewards[ind]])
 
-def train_with_forward_search(env_name, pop_size, total_timesteps, train_timesteps, LOGS, FORWARD_SEARCH_MODEL, seed):
-    env = make_vec_env(env_name)
-    model = PPO(MlpPolicy, env, n_steps=2048, nminibatches=32, noptepochs=10, ent_coef=0.0, learning_rate=3e-4, cliprange_vf=-1)
+def train_with_forward_search(env_name, pop_size, total_timesteps, train_timesteps, LOGS, FORWARD_SEARCH_MODEL, args, seed):
+    env = make_vec_env(env_name, n_envs=args.n_envs)
+    model = PPO(MlpPolicy, env, n_steps=args.n_steps, nminibatches=args.nminibatches, noptepochs=args.noptepochs, ent_coef=args.ent_coef, learning_rate=args.learning_rate, lam=args.lam, gamma=args.gamma, cliprange=args.cliprange, cliprange_vf=-1)
 #     model = PPO(MlpPolicy, env, seed=seed)
     timesteps = []
     mean_reward = []
@@ -185,6 +185,15 @@ if __name__ == "__main__":
     parser.add_argument('--timesteps', dest='steps', type=int, default=100000, help='No of total timesteps.')
     parser.add_argument('--epochs', dest='epochs', type=int, default=10, help='No of total epochs.')
     parser.add_argument('--env', dest='env_name', type=str, default='CartPole-v1', help='OpenAIGym Environment.')
+    parser.add_argument('--n-envs',dest='n_envs',type=int,default=1, help='Number of envs to run in Parallel.')
+    parser.add_argument('--n-steps',dest='n_steps',type=int,default=128, help='Number of steps in trajectory for PPO.')
+    parser.add_argument('--no-epochs',dest='noptepochs',type=int,default=4, help='Number of epochs to optimize the minibatch for PPO.')
+    parser.add_argument('--no-minibatches',dest='nminibatches',type=int,default=4, help='Number of minibatches for PPO.')
+    parser.add_argument('--ent-coef',dest='ent_coef',type=float,default=0.01, help='Entropy term for PPO runs.')
+    parser.add_argument('--clip',dest='cliprange',type=float,default=0.2, help='Clip parameter for PPO.')
+    parser.add_argument('--lam',dest='lam',type=float,default=0.95, help='lam parameter for PPO.')
+    parser.add_argument('--gamma',dest='gamma',type=float,default=0.99, help='gamma parameter for PPO.')
+    parser.add_argument('--lr',dest='learning_rate',type=float,default=2.5e-4)
     parser.add_argument("type", type=int, help="Without (0) or With (1) Forward Search")
     parser.add_argument("id", type=int, help="Run id")
     
@@ -193,21 +202,21 @@ if __name__ == "__main__":
 
     env_name = args.env_name
     run_id = args.id
-    n_envs = 1
+    n_envs = args.n_envs
     total_timesteps = args.steps
     train_timesteps = args.steps // args.epochs
+    pop_size = args.pop_size
 
     LOGS = os.getcwd()        
     LOGS = os.path.join(LOGS, env_name, '{}_{}'.format(total_timesteps, args.epochs), 'run{}'.format(run_id))
     makedirs(LOGS)
-    pop_size = args.pop_size
     FORWARD_SEARCH_MODEL = os.path.join(LOGS, 'fs-model')
     seed = datetime.now().microsecond
     # seed = 10
 
     if args.type == 0:
-        train(env_name, total_timesteps, train_timesteps, LOGS, seed)
+        train(env_name, total_timesteps, train_timesteps, LOGS, args, seed)
     else:
-        train_with_forward_search(env_name, pop_size, total_timesteps, train_timesteps, LOGS, FORWARD_SEARCH_MODEL, seed)
+        train_with_forward_search(env_name, pop_size, total_timesteps, train_timesteps, LOGS, FORWARD_SEARCH_MODEL, args, seed)
     
 

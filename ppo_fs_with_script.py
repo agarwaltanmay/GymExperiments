@@ -47,8 +47,8 @@ def plot_reward(timesteps, mean_reward, min_reward, max_reward, figname="mean_re
     plt.savefig(figname, dpi=200)
 #     plt.show()
 
-def forward_search(trained_timesteps, env_name, save_file, seed, pid):
-    env = make_vec_env(env_name, n_envs=args.n_envs)
+def forward_search(trained_timesteps, env_name, n_envs, save_file, seed, pid):
+    env = make_vec_env(env_name, n_envs=n_envs)
 
     model = PPO.load(save_file, env=env, pid=pid)
 
@@ -146,7 +146,7 @@ def train_with_forward_search(env_name, pop_size, total_timesteps, train_timeste
     for epoch in range(total_timesteps//train_timesteps):
         with mp.get_context("spawn").Pool(pop_size) as pool:
             pooled_results = pool.starmap(forward_search,
-                        ((train_timesteps, env_name, FORWARD_SEARCH_MODEL, seed, pid)
+                        ((train_timesteps, env_name, args.n_envs, FORWARD_SEARCH_MODEL, seed, pid)
                             for _ in range(pop_size)))
 
 

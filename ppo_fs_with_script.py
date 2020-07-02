@@ -45,7 +45,8 @@ def plot_reward(timesteps, mean_reward, min_reward, max_reward, figname="mean_re
     plt.ylabel('Total Cumulative Reward', fontdict={'size' : 18})
     # plt.xticks(list(np.arange(0, (math.ceil(timesteps[-1] / timesteps_interval) + 1) * timesteps_interval, timesteps_interval)), ('{}'.format(str(x)) for x in np.arange(0, (math.ceil(timesteps[-1] / timesteps_interval) + 1) * timesteps_interval, timesteps_interval)))
     plt.savefig(figname, dpi=200)
-#     plt.show()
+    plt.clf()
+    plt.close()
 
 def forward_search(trained_timesteps, env_name, n_envs, save_file, seed, pid):
     env = make_vec_env(env_name, n_envs=n_envs)
@@ -136,14 +137,24 @@ def train_with_forward_search(env_name, pop_size, total_timesteps, train_timeste
     timesteps = []
     mean_reward = []
     std_reward = []
-    pid = os.getpid()
+
+    if os.path.exists(os.path.join(LOGS, 'forward_search_train_stats.npz')):
+        train_stats = np.load(os.path.join(LOGS, 'forward_search_train_stats.npz'))
+        pid = int(train_stats['pid'])
+        completed_steps = int(train_stats['completed_steps'])
+        model = PPO.load(FORWARD_SEARCH_MODEL, env=env, pid=pid)
+        print("Loading forward search model with pid:{}, completed_steps:{}".format(pid, completed_steps))
+    else:
+        pid = os.getpid()
+        completed_steps = 0
+
     epochs = total_timesteps//train_timesteps
     model.save(FORWARD_SEARCH_MODEL, pid=pid)
 
     print("Running forward search with population size: {}, epochs: {}".format(pop_size, epochs))
     print("PID:{}".format(pid))
     
-    for epoch in range(total_timesteps//train_timesteps):
+    for epoch in range(completed_steps // train_timesteps, total_timesteps//train_timesteps):
         with mp.get_context("spawn").Pool(pop_size) as pool:
             pooled_results = pool.starmap(forward_search,
                         ((train_timesteps, env_name, args.n_envs, FORWARD_SEARCH_MODEL, seed, pid)
@@ -163,7 +174,7 @@ def train_with_forward_search(env_name, pop_size, total_timesteps, train_timeste
         ind = np.argmax(mean_rewards)
         print("Epoch:{} Best child index from population: {}, Mean Reward:{}, Std Reward:{}".format(epoch + 1, ind, mean_rewards[ind], std_rewards[ind]))
 
-        model = PPO.load(FORWARD_SEARCH_MODEL, pid=process_ids[ind])
+        model = PPO.load(FORWARD_SEARCH_MODEL, env=env, pid=process_ids[ind])
         model.load_parameters(models_parameters[ind], exact_match=True)
         model.save(FORWARD_SEARCH_MODEL, pid=pid)
         
@@ -177,7 +188,7 @@ def train_with_forward_search(env_name, pop_size, total_timesteps, train_timeste
             csvwriter = csv.writer(f, delimiter=',')
             csvwriter.writerow([epoch + 1, ind, mean_rewards[ind], std_rewards[ind], pooled_results[:, 1:]])
     
-    np.savez_compressed(os.path.join(LOGS, 'train_stats.npz'), timesteps=timesteps, mean_reward=mean_reward, std_reward=std_reward)
+        np.savez_compressed(os.path.join(LOGS, 'train_stats.npz'), timesteps=timesteps, mean_reward=mean_reward, std_reward=std_reward, pid=pid, completed_steps=((epoch + 1) * train_timesteps))
 
 if __name__ == "__main__":
     
@@ -214,7 +225,7 @@ if __name__ == "__main__":
         args.cliprange_vf = -1
 
     LOGS = os.getcwd()
-    LOGS = "/home/scratch/tanmaya/projects/GymExperiments"      
+    # LOGS = "/home/scratch/tanmaya/projects/GymExperiments"      
     LOGS = os.path.join(LOGS, env_name, '{}_{}'.format(total_timesteps, args.epochs), 'run{}'.format(run_id))
     makedirs(LOGS)
     FORWARD_SEARCH_MODEL = os.path.join(LOGS, 'fs-model')
